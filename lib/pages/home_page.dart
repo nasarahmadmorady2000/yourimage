@@ -15,9 +15,11 @@ import 'fullscreen_page.dart';
 
 const String kFavoritesEndpoint = 'http://localhost:3000/api/favorites';
 
+const String kCacheKeyImages = 'cached_image_ids';
+const String kCacheKeyFavorites = 'cached_favorites';
+
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
-
   final String title;
 
   @override
@@ -25,99 +27,112 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  late List<int> _imageIds;
-
+  late List<int> _imageIds = [];
   final Set<int> _favorites = {};
+
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _generateRandomImagesSync();
-    _loadFavorites();
+    _initApp();
   }
 
-  void _generateRandomImagesSync([int count = 30]) {
-    final ids = <int>{};
-    final random = Random();
-
-    while (ids.length < count) {
-      ids.add(random.nextInt(1000) + 1);
-    }
-
-    _imageIds = ids.toList();
+  /// 🚀 FAST INIT: load cache first, then optionally refresh
+  Future<void> _initApp() async {
+    await _loadCache();
+    _isLoading = false;
+    setState(() {});
   }
 
-  Future<void> _refreshImages() async {
-    final ids = <int>{};
-    final random = Random();
+  /// 💾 LOAD FROM LOCAL CACHE (NO NETWORK)
+  Future<void> _loadCache() async {
+    final prefs = await SharedPreferences.getInstance();
 
-    while (ids.length < 30) {
-      ids.add(random.nextInt(1000) + 1);
+    // cached images
+    final cachedImages = prefs.getStringList(kCacheKeyImages);
+    if (cachedImages != null && cachedImages.isNotEmpty) {
+      _imageIds = cachedImages.map(int.parse).toList();
+    } else {
+      _imageIds = _generateRandomIds();
+      await prefs.setStringList(
+        kCacheKeyImages,
+        _imageIds.map((e) => e.toString()).toList(),
+      );
     }
 
-    setState(() {
-      _imageIds = ids.toList();
-    });
+    // cached favorites
+    final cachedFav = prefs.getStringList(kCacheKeyFavorites);
+    if (cachedFav != null) {
+      _favorites.addAll(cachedFav.map(int.parse));
+    }
+  }
+
+  /// 🎲 FAST ID GENERATOR
+  List<int> _generateRandomIds([int count = 30]) {
+    final set = <int>{};
+    final rand = Random();
+
+    while (set.length < count) {
+      set.add(rand.nextInt(1000) + 1);
+    }
+    return set.toList();
   }
 
   String imageUrl(int id) => 'https://picsum.photos/id/$id/600/600';
 
-  Future<void> _loadFavorites() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
+  /// 💾 SAVE CACHE (LOCAL ONLY — FAST)
+  Future<void> _saveCache() async {
+    final prefs = await SharedPreferences.getInstance();
 
-      final list = prefs.getStringList('favorites') ?? <String>[];
+    await prefs.setStringList(
+      kCacheKeyImages,
+      _imageIds.map((e) => e.toString()).toList(),
+    );
 
-      setState(() {
-        _favorites
-          ..clear()
-          ..addAll(list.map((e) => int.tryParse(e)).whereType<int>());
-      });
+    await prefs.setStringList(
+      kCacheKeyFavorites,
+      _favorites.map((e) => e.toString()).toList(),
+    );
 
-      final serverFavorites = await _fetchFavoritesFromServer();
+    // async server sync (NO UI BLOCK)
+    unawaited(_syncFavoritesToServer());
+  }
 
-      if (serverFavorites.isNotEmpty) {
-        setState(() {
-          _favorites.addAll(serverFavorites);
-        });
+  Future<void> _refreshImages() async {
+    _imageIds = _generateRandomIds();
 
-        await _saveFavorites();
+    await _saveCache();
+    setState(() {});
+  }
+
+  /// ❤️ FAVORITES
+  void _toggleFavorite(int id) {
+    setState(() {
+      if (_favorites.contains(id)) {
+        _favorites.remove(id);
+      } else {
+        _favorites.add(id);
       }
-    } catch (_) {}
+    });
+
+    _saveCache();
   }
 
-  Future<void> _saveFavorites() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
+  /// 📤 SHARE IMAGE (OPTIMIZED)
+  Future<void> _shareImage(int id) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final file = File('${dir.path}/image_$id.jpg');
 
-      await prefs.setStringList(
-        'favorites',
-        _favorites.map((e) => e.toString()).toList(),
-      );
+    if (!await file.exists()) {
+      final res = await http.get(Uri.parse(imageUrl(id)));
+      await file.writeAsBytes(res.bodyBytes);
+    }
 
-      unawaited(_syncFavoritesToServer());
-    } catch (_) {}
+    await Share.shareXFiles([XFile(file.path)], text: 'Check this image');
   }
 
-  Future<List<int>> _fetchFavoritesFromServer() async {
-    try {
-      final response = await http.get(Uri.parse(kFavoritesEndpoint));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        if (data is Map && data['favorites'] is List) {
-          return (data['favorites'] as List)
-              .map((e) => int.tryParse(e.toString()))
-              .whereType<int>()
-              .toList();
-        }
-      }
-    } catch (_) {}
-
-    return [];
-  }
-
+  /// 🌐 SERVER SYNC (NON-BLOCKING)
   Future<void> _syncFavoritesToServer() async {
     try {
       await http.post(
@@ -128,188 +143,92 @@ class _MyHomePageState extends State<MyHomePage> {
     } catch (_) {}
   }
 
-  Future<void> _shareImage(int id) async {
-    final directory = await getApplicationDocumentsDirectory();
+  void _openFullScreen(int id, {List<int>? imageIds}) {
+    final ids = imageIds ?? _imageIds;
+    final index = ids.indexOf(id);
 
-    final file = File('${directory.path}/image_$id.jpg');
-
-    if (!await file.exists()) {
-      final response = await http.get(Uri.parse(imageUrl(id)));
-
-      await file.writeAsBytes(response.bodyBytes);
-    }
-
-    await Share.shareXFiles([
-      XFile(file.path),
-    ], text: 'Check out this image from Picsum');
-  }
-
-  Future<void> _downloadImage(int id) async {
-    // Download removed.
-  }
-
-  void _toggleFavorite(int id) {
-    setState(() {
-      if (_favorites.contains(id)) {
-        _favorites.remove(id);
-      } else {
-        _favorites.add(id);
-      }
-    });
-
-    _saveFavorites();
-  }
-
-  void _openFavorites() {
-    final favoriteIds = _imageIds.where(_favorites.contains).toList();
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => FavoritesPage(
-          favoriteIds: favoriteIds,
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (_, __, ___) => ImageFullscreenPage(
+          imageIds: ids,
+          initialIndex: index,
           imageUrl: imageUrl,
-          favorites: _favorites,
+          isFavorite: (i) => _favorites.contains(i),
           onToggleFavorite: _toggleFavorite,
-          onDownload: _downloadImage,
+          onDownload: (_) async {},
           onShare: _shareImage,
-          onOpenFullScreen: _openFullScreen,
         ),
       ),
     );
   }
 
-  void _openFullScreen(int id, {List<int>? imageIds}) {
-    final ids = imageIds ?? _imageIds;
-    final initialIndex = ids.indexOf(id);
-
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 400),
-        reverseTransitionDuration: const Duration(milliseconds: 300),
-        pageBuilder: (_, animation, secondaryAnimation) {
-          return ImageFullscreenPage(
-            imageIds: ids,
-            initialIndex: initialIndex,
-            imageUrl: imageUrl,
-            isFavorite: (imageId) => _favorites.contains(imageId),
-            onToggleFavorite: _toggleFavorite,
-            onDownload: _downloadImage,
-            onShare: _shareImage,
-          );
-        },
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final fade = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeInOut,
-          );
-
-          final scale = Tween<double>(begin: 0.95, end: 1.0).animate(
-            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-          );
-
-          return FadeTransition(
-            opacity: fade,
-            child: ScaleTransition(scale: scale, child: child),
-          );
-        },
+  void _openFavorites() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FavoritesPage(
+          favoriteIds: _imageIds.where(_favorites.contains).toList(),
+          imageUrl: imageUrl,
+          favorites: _favorites,
+          onToggleFavorite: _toggleFavorite,
+          onDownload: (_) async {},
+          onShare: _shareImage,
+          onOpenFullScreen: (id, ids) {
+            _openFullScreen(id, imageIds: ids);
+          },
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
-        elevation: 0,
-        centerTitle: true,
-        title: Text(
-          widget.title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
-          ),
-        ),
+        title: Text(widget.title),
         actions: [
           IconButton(
-            tooltip: 'Favorites',
             onPressed: _openFavorites,
-            icon: Stack(
-              alignment: Alignment.center,
-              children: [
-                const Icon(Icons.favorite, color: Colors.white),
-                if (_favorites.isNotEmpty)
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      constraints: const BoxConstraints(
-                        minWidth: 18,
-                        minHeight: 18,
-                      ),
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        '${_favorites.length}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+            icon: const Icon(Icons.favorite),
           ),
         ],
       ),
+
       body: RefreshIndicator(
         onRefresh: _refreshImages,
         child: GridView.builder(
           padding: const EdgeInsets.all(12),
-          physics: const AlwaysScrollableScrollPhysics(),
+          itemCount: _imageIds.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: 0.72,
           ),
-          itemCount: _imageIds.length,
           itemBuilder: (context, index) {
             final id = _imageIds[index];
 
             return GestureDetector(
               onTap: () => _openFullScreen(id),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: ImageCard(
-                    id: id,
-                    imageUrl: imageUrl,
-                    isFavorite: _favorites.contains(id),
-                    isDownloading: false,
-                    onDownload: _downloadImage,
-                    onToggleFavorite: _toggleFavorite,
-                    onShare: _shareImage,
-                  ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: ImageCard(
+                  id: id,
+                  imageUrl: imageUrl,
+                  isFavorite: _favorites.contains(id),
+                  isDownloading: false,
+                  onDownload: (_) async {},
+                  onToggleFavorite: _toggleFavorite,
+                  onShare: _shareImage,
                 ),
               ),
             );

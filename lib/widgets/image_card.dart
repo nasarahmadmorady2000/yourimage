@@ -56,20 +56,21 @@ class _ImageCardState extends State<ImageCard> {
               tag: 'image_${widget.id}',
               child: Image.network(
                 widget.imageUrl(widget.id),
-                fit: BoxFit.cover, // IMPORTANT
+                fit: BoxFit.cover,
                 alignment: Alignment.center,
+                errorBuilder: (context, error, stackTrace) {
+                  return const ColoredBox(
+                    color: Colors.black12,
+                    child: Center(
+                      child: Icon(Icons.broken_image, color: Colors.grey),
+                    ),
+                  );
+                },
                 loadingBuilder: (context, child, progress) {
                   if (progress == null) return child;
 
-                  return Shimmer.fromColors(
-                    baseColor: Colors.grey.shade800,
-                    highlightColor: Colors.grey.shade600,
-                    child: Container(color: Colors.grey),
-                  );
-                },
-                errorBuilder: (context, error, stackTrace) {
                   return const Center(
-                    child: Icon(Icons.broken_image, size: 48),
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   );
                 },
               ),

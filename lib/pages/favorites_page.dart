@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-
 import '../widgets/image_card.dart';
+
+typedef OpenFullScreenCallback = void Function(int id, List<int> imageIds);
 
 class FavoritesPage extends StatefulWidget {
   const FavoritesPage({
@@ -17,10 +18,12 @@ class FavoritesPage extends StatefulWidget {
   final List<int> favoriteIds;
   final String Function(int) imageUrl;
   final Set<int> favorites;
+
   final void Function(int) onToggleFavorite;
   final Future<void> Function(int) onDownload;
   final Future<void> Function(int) onShare;
-  final void Function(int, {List<int>? imageIds}) onOpenFullScreen;
+
+  final OpenFullScreenCallback onOpenFullScreen;
 
   @override
   State<FavoritesPage> createState() => _FavoritesPageState();
@@ -37,10 +40,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   void _removeFavorite(int id) {
     widget.onToggleFavorite(id);
-
-    setState(() {
-      _favoriteIds.remove(id);
-    });
+    setState(() => _favoriteIds.remove(id));
   }
 
   @override
@@ -48,23 +48,20 @@ class _FavoritesPageState extends State<FavoritesPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Favorites')),
       body: _favoriteIds.isEmpty
-          ? const Center(child: Text('No favorites yet.'))
+          ? const Center(child: Text('No favorites yet'))
           : GridView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+              padding: const EdgeInsets.all(12),
+              itemCount: _favoriteIds.length,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
-                childAspectRatio: 0.8,
               ),
-              itemCount: _favoriteIds.length,
               itemBuilder: (context, index) {
                 final id = _favoriteIds[index];
 
                 return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () =>
-                      widget.onOpenFullScreen(id, imageIds: _favoriteIds),
+                  onTap: () => widget.onOpenFullScreen(id, _favoriteIds),
                   child: ImageCard(
                     id: id,
                     imageUrl: widget.imageUrl,
