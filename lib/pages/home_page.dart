@@ -14,7 +14,6 @@ import 'favorites_page.dart';
 import 'fullscreen_page.dart';
 
 const String kFavoritesEndpoint = 'http://localhost:3000/api/favorites';
-
 const String kCacheKeyImages = 'cached_image_ids';
 const String kCacheKeyFavorites = 'cached_favorites';
 
@@ -27,8 +26,9 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  late List<int> _imageIds = [];
+  List<int> _imageIds = [];
   final Set<int> _favorites = {};
+  final Set<int> _brokenImages = {};
 
   bool _isLoading = true;
 
@@ -38,37 +38,26 @@ class _MyHomePageState extends State<MyHomePage> {
     _initApp();
   }
 
-  /// 🚀 FAST INIT: load cache first, then optionally refresh
+  // =========================
+  // INIT
+  // =========================
   Future<void> _initApp() async {
     await _loadCache();
-    _isLoading = false;
-    setState(() {});
+    setState(() => _isLoading = false);
   }
 
-  /// 💾 LOAD FROM LOCAL CACHE (NO NETWORK)
   Future<void> _loadCache() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // cached images
     final cachedImages = prefs.getStringList(kCacheKeyImages);
-    if (cachedImages != null && cachedImages.isNotEmpty) {
-      _imageIds = cachedImages.map(int.parse).toList();
-    } else {
-      _imageIds = _generateRandomIds();
-      await prefs.setStringList(
-        kCacheKeyImages,
-        _imageIds.map((e) => e.toString()).toList(),
-      );
-    }
+    _imageIds = cachedImages?.map(int.parse).toList() ?? _generateRandomIds();
 
-    // cached favorites
     final cachedFav = prefs.getStringList(kCacheKeyFavorites);
     if (cachedFav != null) {
       _favorites.addAll(cachedFav.map(int.parse));
     }
   }
 
-  /// 🎲 FAST ID GENERATOR
   List<int> _generateRandomIds([int count = 30]) {
     final set = <int>{};
     final rand = Random();
@@ -81,7 +70,22 @@ class _MyHomePageState extends State<MyHomePage> {
 
   String imageUrl(int id) => 'https://picsum.photos/id/$id/600/600';
 
-  /// 💾 SAVE CACHE (LOCAL ONLY — FAST)
+  // =========================
+  // BROKEN IMAGE HANDLING
+  // =========================
+  void _markImageBroken(int id) {
+    if (_brokenImages.contains(id)) return;
+
+    setState(() {
+      _brokenImages.add(id);
+    });
+
+    _saveCache();
+  }
+
+  // =========================
+  // CACHE
+  // =========================
   Future<void> _saveCache() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -95,18 +99,21 @@ class _MyHomePageState extends State<MyHomePage> {
       _favorites.map((e) => e.toString()).toList(),
     );
 
-    // async server sync (NO UI BLOCK)
     unawaited(_syncFavoritesToServer());
   }
 
   Future<void> _refreshImages() async {
-    _imageIds = _generateRandomIds();
+    setState(() {
+      _imageIds = _generateRandomIds();
+      _brokenImages.clear();
+    });
 
     await _saveCache();
-    setState(() {});
   }
 
-  /// ❤️ FAVORITES
+  // =========================
+  // FAVORITES
+  // =========================
   void _toggleFavorite(int id) {
     setState(() {
       if (_favorites.contains(id)) {
@@ -119,7 +126,9 @@ class _MyHomePageState extends State<MyHomePage> {
     _saveCache();
   }
 
-  /// 📤 SHARE IMAGE (OPTIMIZED)
+  // =========================
+  // SHARE
+  // =========================
   Future<void> _shareImage(int id) async {
     final dir = await getApplicationDocumentsDirectory();
     final file = File('${dir.path}/image_$id.jpg');
@@ -129,10 +138,12 @@ class _MyHomePageState extends State<MyHomePage> {
       await file.writeAsBytes(res.bodyBytes);
     }
 
-    await Share.shareXFiles([XFile(file.path)], text: 'Check this image');
+    await Share.shareXFiles([XFile(file.path)]);
   }
 
-  /// 🌐 SERVER SYNC (NON-BLOCKING)
+  // =========================
+  // SERVER SYNC
+  // =========================
   Future<void> _syncFavoritesToServer() async {
     try {
       await http.post(
@@ -143,14 +154,16 @@ class _MyHomePageState extends State<MyHomePage> {
     } catch (_) {}
   }
 
+  // =========================
+  // NAVIGATION
+  // =========================
   void _openFullScreen(int id, {List<int>? imageIds}) {
     final ids = imageIds ?? _imageIds;
     final index = ids.indexOf(id);
 
     Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 350),
-        pageBuilder: (_, __, ___) => ImageFullscreenPage(
+      MaterialPageRoute(
+        builder: (_) => ImageFullscreenPage(
           imageIds: ids,
           initialIndex: index,
           imageUrl: imageUrl,
@@ -182,6 +195,9 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  // =========================
+  // UI
+  // =========================
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -217,7 +233,13 @@ class _MyHomePageState extends State<MyHomePage> {
           itemBuilder: (context, index) {
             final id = _imageIds[index];
 
+            // ❌ skip broken images safely
+            if (_brokenImages.contains(id)) {
+              return const SizedBox.shrink();
+            }
+
             return GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () => _openFullScreen(id),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(18),
@@ -229,6 +251,9 @@ class _MyHomePageState extends State<MyHomePage> {
                   onDownload: (_) async {},
                   onToggleFavorite: _toggleFavorite,
                   onShare: _shareImage,
+
+                  // ✅ IMPORTANT CONNECTION
+                  onImageFailed: _markImageBroken,
                 ),
               ),
             );

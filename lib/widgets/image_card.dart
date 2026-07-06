@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:shimmer/shimmer.dart';
 
 typedef ImageUrlBuilder = String Function(int id);
 typedef ImageActionCallback = void Function(int id);
-typedef ImageAsyncActionCallback = Future<void> Function(int id);
 
 class ImageCard extends StatefulWidget {
   const ImageCard({
@@ -15,15 +13,23 @@ class ImageCard extends StatefulWidget {
     required this.onDownload,
     required this.onToggleFavorite,
     required this.onShare,
+
+    // ✅ REQUIRED FOR BROKEN IMAGE HANDLING
+    this.onImageFailed,
   });
 
   final int id;
   final ImageUrlBuilder imageUrl;
+
   final bool isFavorite;
   final bool isDownloading;
-  final ImageAsyncActionCallback onDownload;
+
+  final Future<void> Function(int id) onDownload;
   final ImageActionCallback onToggleFavorite;
-  final ImageAsyncActionCallback onShare;
+  final Future<void> Function(int id) onShare;
+
+  // ✅ THIS IS THE IMPORTANT PART
+  final Function(int id)? onImageFailed;
 
   @override
   State<ImageCard> createState() => _ImageCardState();
@@ -51,21 +57,23 @@ class _ImageCardState extends State<ImageCard> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // IMAGE (FULL COVER - NO WHITE SPACE)
             Hero(
               tag: 'image_${widget.id}',
               child: Image.network(
                 widget.imageUrl(widget.id),
                 fit: BoxFit.cover,
-                alignment: Alignment.center,
+
+                // =========================
+                // ❌ ERROR HANDLING (CRITICAL)
+                // =========================
                 errorBuilder: (context, error, stackTrace) {
-                  return const ColoredBox(
-                    color: Colors.black12,
-                    child: Center(
-                      child: Icon(Icons.broken_image, color: Colors.grey),
-                    ),
-                  );
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    widget.onImageFailed?.call(widget.id);
+                  });
+
+                  return const SizedBox.shrink();
                 },
+
                 loadingBuilder: (context, child, progress) {
                   if (progress == null) return child;
 
@@ -76,7 +84,7 @@ class _ImageCardState extends State<ImageCard> {
               ),
             ),
 
-            // HEART ANIMATION
+            // ❤️ heart animation
             Center(
               child: AnimatedOpacity(
                 opacity: _showHeart ? 1 : 0,
@@ -89,7 +97,7 @@ class _ImageCardState extends State<ImageCard> {
               ),
             ),
 
-            // FAVORITE ICON TOP RIGHT
+            // ❤️ favorite icon
             Positioned(
               top: 8,
               right: 8,
