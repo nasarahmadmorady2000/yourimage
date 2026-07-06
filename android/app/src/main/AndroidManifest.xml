@@ -5,6 +5,7 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.SET_WALLPAPER"/>
+    
 
     <application
         android:label="flutter_application_1"

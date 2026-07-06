@@ -19,20 +19,24 @@ class MainActivity : FlutterActivity() {
             CHANNEL
         ).setMethodCallHandler { call, result ->
 
+            // =========================
+            // WALLPAPER METHOD
+            // =========================
             if (call.method == "setWallpaper") {
 
-                val imagePath = call.argument<String>("imagePath")
+                val path = call.argument<String>("imagePath")
+                val type = call.argument<String>("type") ?: "both"
 
-                if (imagePath == null) {
-                    result.error("INVALID", "Image path is null", null)
+                if (path == null) {
+                    result.error("ERROR", "Image path is null", null)
                     return@setMethodCallHandler
                 }
 
                 try {
-                    val file = File(imagePath)
+                    val file = File(path)
 
                     if (!file.exists()) {
-                        result.error("NOT_FOUND", "Image file not found", null)
+                        result.error("NOT_FOUND", "File not found", null)
                         return@setMethodCallHandler
                     }
 
@@ -40,14 +44,43 @@ class MainActivity : FlutterActivity() {
 
                     val wallpaperManager = WallpaperManager.getInstance(this)
 
-                    // Apply wallpaper (HOME SCREEN + LOCK SCREEN)
-                    wallpaperManager.setBitmap(bitmap)
+                    // =========================
+                    // APPLY WALLPAPER LOGIC
+                    // =========================
+                    when (type) {
+
+                        // 📱 Home Screen only
+                        "home" -> {
+                            wallpaperManager.setBitmap(
+                                bitmap,
+                                null,
+                                true,
+                                WallpaperManager.FLAG_SYSTEM
+                            )
+                        }
+
+                        // 🔒 Lock Screen only
+                        "lock" -> {
+                            wallpaperManager.setBitmap(
+                                bitmap,
+                                null,
+                                true,
+                                WallpaperManager.FLAG_LOCK
+                            )
+                        }
+
+                        // 📱 Both screens
+                        else -> {
+                            wallpaperManager.setBitmap(bitmap)
+                        }
+                    }
 
                     result.success(true)
 
                 } catch (e: Exception) {
                     result.error("ERROR", e.message, null)
                 }
+
             } else {
                 result.notImplemented()
             }

@@ -1,11 +1,10 @@
-import 'dart:io';
 import 'dart:typed_data';
+import 'dart:io';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:photo_manager/photo_manager.dart';
 
 class ImageFullscreenPage extends StatefulWidget {
   const ImageFullscreenPage({
@@ -36,11 +35,9 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
   late int _currentIndex;
 
   double _progress = 0.0;
-  bool _isDownloading = false;
+  bool _isProcessing = false;
 
-  // =========================
-  // WALLPAPER CHANNEL
-  // =========================
+  // ✅ PLATFORM CHANNEL (Flutter → Android)
   static const MethodChannel _wallpaperChannel = MethodChannel(
     'com.imagesapp.wallpaper',
   );
@@ -50,12 +47,6 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
     super.initState();
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
-
-    requestGalleryPermission();
-  }
-
-  Future<void> requestGalleryPermission() async {
-    await PhotoManager.requestPermissionExtend();
   }
 
   @override
@@ -67,99 +58,51 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
   int get _currentImageId => widget.imageIds[_currentIndex];
 
   // =========================
-  // DOWNLOAD TO GALLERY
+  // IMAGE DOWNLOAD (TEMP FILE)
   // =========================
-  Future<void> _downloadImage(int id) async {
-    try {
-      setState(() {
-        _isDownloading = true;
-        _progress = 0.0;
-      });
+  Future<File> _downloadToTempFile(int id) async {
+    final dio = Dio();
 
-      final dio = Dio();
+    final response = await dio.get(
+      widget.imageUrl(id),
+      options: Options(responseType: ResponseType.bytes),
+      onReceiveProgress: (received, total) {
+        if (total != -1 && mounted) {
+          setState(() {
+            _progress = received / total;
+          });
+        }
+      },
+    );
 
-      final response = await dio.get(
-        widget.imageUrl(id),
-        options: Options(responseType: ResponseType.bytes),
-        onReceiveProgress: (received, total) {
-          if (total != -1 && mounted) {
-            setState(() {
-              _progress = received / total;
-            });
-          }
-        },
-      );
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/wallpaper_$id.jpg');
 
-      final Uint8List bytes = Uint8List.fromList(response.data);
+    await file.writeAsBytes(Uint8List.fromList(response.data));
 
-      final asset = await PhotoManager.editor.saveImage(
-        bytes,
-        filename: "MyApp_Images_$id.jpg",
-      );
-
-      if (mounted) {
-        setState(() {
-          _isDownloading = false;
-          _progress = 0.0;
-        });
-      }
-
-      if (asset != null && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Saved to Gallery")));
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isDownloading = false;
-          _progress = 0.0;
-        });
-
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Download failed: $e")));
-      }
-    }
+    return file;
   }
 
   // =========================
-  // SET AS WALLPAPER
+  // WALLPAPER APPLY (ANDROID)
   // =========================
-  Future<void> _setWallpaper(int id) async {
+  Future<void> _applyWallpaper(int id, String type) async {
     try {
       setState(() {
-        _isDownloading = true;
-        _progress = 0.0;
+        _isProcessing = true;
+        _progress = 0;
       });
 
-      final dio = Dio();
-
-      final response = await dio.get(
-        widget.imageUrl(id),
-        options: Options(responseType: ResponseType.bytes),
-        onReceiveProgress: (received, total) {
-          if (total != -1 && mounted) {
-            setState(() {
-              _progress = received / total;
-            });
-          }
-        },
-      );
-
-      final directory = await getTemporaryDirectory();
-
-      final file = File('${directory.path}/wallpaper_$id.jpg');
-
-      await file.writeAsBytes(Uint8List.fromList(response.data));
+      final file = await _downloadToTempFile(id);
 
       await _wallpaperChannel.invokeMethod('setWallpaper', {
         'imagePath': file.path,
+        'type': type, // home / lock / both
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Wallpaper applied successfully")),
+          SnackBar(content: Text("Wallpaper applied ($type screen)")),
         );
       }
     } catch (e) {
@@ -171,18 +114,60 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
     } finally {
       if (mounted) {
         setState(() {
-          _isDownloading = false;
-          _progress = 0.0;
+          _isProcessing = false;
+          _progress = 0;
         });
       }
     }
   }
 
+  // =========================
+  // WALLPAPER OPTIONS SHEET
+  // =========================
+  void _showWallpaperOptions(int id) {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) {
+        return Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.home),
+              title: const Text("Home Screen"),
+              onTap: () {
+                Navigator.pop(context);
+                _applyWallpaper(id, "home");
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.lock),
+              title: const Text("Lock Screen"),
+              onTap: () {
+                Navigator.pop(context);
+                _applyWallpaper(id, "lock");
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.phone_android),
+              title: const Text("Both"),
+              onTap: () {
+                Navigator.pop(context);
+                _applyWallpaper(id, "both");
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // =========================
+  // UI
+  // =========================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Image Viewer'),
+        title: const Text("Image Viewer"),
         actions: [
           IconButton(
             icon: Icon(
@@ -190,15 +175,14 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
                   ? Icons.favorite
                   : Icons.favorite_border,
             ),
-            color: widget.isFavorite(_currentImageId) ? Colors.redAccent : null,
             onPressed: () {
-              setState(() {
-                widget.onToggleFavorite(_currentImageId);
-              });
+              widget.onToggleFavorite(_currentImageId);
+              setState(() {});
             },
           ),
 
-          if (_isDownloading)
+          // 📊 progress
+          if (_isProcessing)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
               child: SizedBox(
@@ -207,37 +191,25 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
               ),
             ),
 
-          // DOWNLOAD
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: _isDownloading
-                ? null
-                : () => _downloadImage(_currentImageId),
-          ),
-
-          // SET WALLPAPER
+          // ⬇ wallpaper button
           IconButton(
             icon: const Icon(Icons.wallpaper),
-            onPressed: _isDownloading
+            onPressed: _isProcessing
                 ? null
-                : () => _setWallpaper(_currentImageId),
+                : () => _showWallpaperOptions(_currentImageId),
           ),
 
-          // SHARE
           IconButton(
             icon: const Icon(Icons.share),
             onPressed: () => widget.onShare(_currentImageId),
           ),
         ],
       ),
+
       body: PageView.builder(
         controller: _pageController,
         itemCount: widget.imageIds.length,
-        onPageChanged: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
+        onPageChanged: (i) => setState(() => _currentIndex = i),
         itemBuilder: (context, index) {
           final id = widget.imageIds[index];
 
@@ -247,17 +219,7 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
               child: InteractiveViewer(
                 minScale: 1,
                 maxScale: 5,
-                child: Image.network(
-                  widget.imageUrl(id),
-                  fit: BoxFit.contain,
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) {
-                      return child;
-                    }
-
-                    return const Center(child: CircularProgressIndicator());
-                  },
-                ),
+                child: Image.network(widget.imageUrl(id), fit: BoxFit.contain),
               ),
             ),
           );
