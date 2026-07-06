@@ -29,119 +29,81 @@ class ImageCard extends StatefulWidget {
   State<ImageCard> createState() => _ImageCardState();
 }
 
-class _ImageCardState extends State<ImageCard>
-    with SingleTickerProviderStateMixin {
+class _ImageCardState extends State<ImageCard> {
   bool _showHeart = false;
 
   void _onDoubleTap() {
     widget.onToggleFavorite(widget.id);
 
-    setState(() {
-      _showHeart = true;
-    });
+    setState(() => _showHeart = true);
 
     Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) {
-        setState(() {
-          _showHeart = false;
-        });
-      }
+      if (mounted) setState(() => _showHeart = false);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      clipBehavior: Clip.hardEdge,
-      child: Column(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              onDoubleTap: _onDoubleTap,
-              child: Stack(
+    return GestureDetector(
+      onDoubleTap: _onDoubleTap,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // IMAGE (FULL COVER - NO WHITE SPACE)
+            Hero(
+              tag: 'image_${widget.id}',
+              child: Image.network(
+                widget.imageUrl(widget.id),
+                fit: BoxFit.cover, // IMPORTANT
                 alignment: Alignment.center,
-                children: [
-                  Positioned.fill(
-                    child: Hero(
-                      tag: 'image_${widget.id}',
-                      child: Image.network(
-                        widget.imageUrl(widget.id),
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
 
-                          return Shimmer.fromColors(
-                            baseColor: Colors.grey.shade800,
-                            highlightColor: Colors.grey.shade600,
-                            child: Container(color: Colors.grey),
-                          );
-                        },
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Center(
-                            child: Icon(Icons.broken_image, size: 48),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-
-                  // ❤️ Big Instagram-like heart animation
-                  AnimatedOpacity(
-                    opacity: _showHeart ? 1 : 0,
-                    duration: const Duration(milliseconds: 200),
-                    child: const Icon(
-                      Icons.favorite,
-                      size: 90,
-                      color: Colors.redAccent,
-                    ),
-                  ),
-
-                  // small favorite indicator top-right
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: CircleAvatar(
-                      radius: 16,
-                      backgroundColor: Colors.black54,
-                      child: Icon(
-                        widget.isFavorite
-                            ? Icons.favorite
-                            : Icons.favorite_border,
-                        color: widget.isFavorite
-                            ? Colors.redAccent
-                            : Colors.white,
-                        size: 18,
-                      ),
-                    ),
-                  ),
-                ],
+                  return Shimmer.fromColors(
+                    baseColor: Colors.grey.shade800,
+                    highlightColor: Colors.grey.shade600,
+                    child: Container(color: Colors.grey),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return const Center(
+                    child: Icon(Icons.broken_image, size: 48),
+                  );
+                },
               ),
             ),
-          ),
 
-          // ACTION BAR
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.favorite_border, color: Colors.white),
-                  onPressed: () => widget.onToggleFavorite(widget.id),
+            // HEART ANIMATION
+            Center(
+              child: AnimatedOpacity(
+                opacity: _showHeart ? 1 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: const Icon(
+                  Icons.favorite,
+                  size: 90,
+                  color: Colors.redAccent,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.download, color: Colors.white),
-                  onPressed: () => widget.onDownload(widget.id),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.share, color: Colors.white),
-                  onPressed: () => widget.onShare(widget.id),
-                ),
-              ],
+              ),
             ),
-          ),
-        ],
+
+            // FAVORITE ICON TOP RIGHT
+            Positioned(
+              top: 8,
+              right: 8,
+              child: CircleAvatar(
+                radius: 16,
+                backgroundColor: Colors.black54,
+                child: Icon(
+                  widget.isFavorite ? Icons.favorite : Icons.favorite_border,
+                  color: widget.isFavorite ? Colors.redAccent : Colors.white,
+                  size: 18,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
