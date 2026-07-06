@@ -158,7 +158,9 @@ class _MyHomePageState extends State<MyHomePage> {
   // NAVIGATION
   // =========================
   void _openFullScreen(int id, {List<int>? imageIds}) {
-    final ids = imageIds ?? _imageIds;
+    final ids = (imageIds ?? _imageIds)
+        .where((id) => !_brokenImages.contains(id))
+        .toList();
     final index = ids.indexOf(id);
 
     Navigator.of(context).push(
@@ -181,7 +183,10 @@ class _MyHomePageState extends State<MyHomePage> {
       context,
       MaterialPageRoute(
         builder: (_) => FavoritesPage(
-          favoriteIds: _imageIds.where(_favorites.contains).toList(),
+          favoriteIds: _imageIds
+              .where(_favorites.contains)
+              .where((id) => !_brokenImages.contains(id))
+              .toList(),
           imageUrl: imageUrl,
           favorites: _favorites,
           onToggleFavorite: _toggleFavorite,

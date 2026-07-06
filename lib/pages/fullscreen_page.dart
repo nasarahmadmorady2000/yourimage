@@ -1,4 +1,7 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 class ImageFullscreenPage extends StatefulWidget {
   const ImageFullscreenPage({
@@ -28,11 +31,20 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
   late final PageController _pageController;
   late int _currentIndex;
 
+  double _progress = 0.0;
+  bool _isDownloading = false;
+
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
+
+    requestGalleryPermission();
+  }
+
+  Future<void> requestGalleryPermission() async {
+    await PhotoManager.requestPermissionExtend();
   }
 
   @override
@@ -42,6 +54,61 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
   }
 
   int get _currentImageId => widget.imageIds[_currentIndex];
+
+  // =========================
+  // 🚀 DIO DOWNLOAD SYSTEM
+  // =========================
+  Future<void> _downloadImage(int id) async {
+    try {
+      setState(() {
+        _isDownloading = true;
+        _progress = 0.0;
+      });
+
+      final dio = Dio();
+
+      final response = await dio.get(
+        widget.imageUrl(id),
+        options: Options(responseType: ResponseType.bytes),
+        onReceiveProgress: (received, total) {
+          if (total != -1) {
+            setState(() {
+              _progress = received / total;
+            });
+          }
+        },
+      );
+
+      final Uint8List bytes = Uint8List.fromList(response.data);
+
+      final asset = await PhotoManager.editor.saveImage(
+        bytes,
+        filename: "MyApp_Images_$id.jpg",
+      );
+
+      setState(() {
+        _isDownloading = false;
+        _progress = 0.0;
+      });
+
+      if (asset != null && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Saved to Gallery")));
+      }
+    } catch (e) {
+      setState(() {
+        _isDownloading = false;
+        _progress = 0.0;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Download failed: $e")));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,20 +128,33 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
                 widget.onToggleFavorite(_currentImageId);
               });
             },
-            tooltip: 'Favorite',
           ),
+
+          // 📊 PROGRESS BAR (ONLY WHEN DOWNLOADING)
+          if (_isDownloading)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: SizedBox(
+                width: 80,
+                child: LinearProgressIndicator(value: _progress),
+              ),
+            ),
+
+          // ⬇ DOWNLOAD BUTTON
           IconButton(
             icon: const Icon(Icons.download),
-            onPressed: () => widget.onDownload(_currentImageId),
-            tooltip: 'Download',
+            onPressed: _isDownloading
+                ? null
+                : () => _downloadImage(_currentImageId),
           ),
+
           IconButton(
             icon: const Icon(Icons.share),
             onPressed: () => widget.onShare(_currentImageId),
-            tooltip: 'Share',
           ),
         ],
       ),
+
       body: PageView.builder(
         controller: _pageController,
         itemCount: widget.imageIds.length,
