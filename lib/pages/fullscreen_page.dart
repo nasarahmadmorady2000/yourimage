@@ -90,18 +90,14 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
             child: Hero(
               tag: 'image_$id',
               child: InteractiveViewer(
+                minScale: 1,
+                maxScale: 5,
                 child: Image.network(
                   widget.imageUrl(id),
                   fit: BoxFit.contain,
                   loadingBuilder: (context, child, loadingProgress) {
                     if (loadingProgress == null) return child;
-
                     return const Center(child: CircularProgressIndicator());
-                  },
-                  errorBuilder: (context, error, stackTrace) {
-                    return const Center(
-                      child: Icon(Icons.broken_image, size: 72),
-                    );
                   },
                 ),
               ),

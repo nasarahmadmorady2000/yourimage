@@ -38,10 +38,10 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _generateRandomImagesSync([int count = 30]) {
     final ids = <int>{};
-    final rand = Random();
+    final random = Random();
 
     while (ids.length < count) {
-      ids.add(rand.nextInt(1000) + 1);
+      ids.add(random.nextInt(1000) + 1);
     }
 
     _imageIds = ids.toList();
@@ -49,16 +49,18 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _refreshImages() async {
     final ids = <int>{};
-    final rand = Random();
+    final random = Random();
 
     while (ids.length < 30) {
-      ids.add(rand.nextInt(1000) + 1);
+      ids.add(random.nextInt(1000) + 1);
     }
 
     setState(() {
       _imageIds = ids.toList();
     });
   }
+
+  String imageUrl(int id) => 'https://picsum.photos/id/$id/600/600';
 
   Future<void> _loadFavorites() async {
     try {
@@ -126,8 +128,6 @@ class _MyHomePageState extends State<MyHomePage> {
     } catch (_) {}
   }
 
-  String imageUrl(int id) => 'https://picsum.photos/id/$id/600/600';
-
   Future<void> _shareImage(int id) async {
     final directory = await getApplicationDocumentsDirectory();
 
@@ -142,6 +142,10 @@ class _MyHomePageState extends State<MyHomePage> {
     await Share.shareXFiles([
       XFile(file.path),
     ], text: 'Check out this image from Picsum');
+  }
+
+  Future<void> _downloadImage(int id) async {
+    // Download removed.
   }
 
   void _toggleFavorite(int id) {
@@ -167,7 +171,7 @@ class _MyHomePageState extends State<MyHomePage> {
           imageUrl: imageUrl,
           favorites: _favorites,
           onToggleFavorite: _toggleFavorite,
-          onDownload: (_) async {},
+          onDownload: _downloadImage,
           onShare: _shareImage,
           onOpenFullScreen: _openFullScreen,
         ),
@@ -177,19 +181,38 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _openFullScreen(int id, {List<int>? imageIds}) {
     final ids = imageIds ?? _imageIds;
+    final initialIndex = ids.indexOf(id);
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ImageFullscreenPage(
-          imageIds: ids,
-          initialIndex: ids.indexOf(id),
-          imageUrl: imageUrl,
-          isFavorite: (id) => _favorites.contains(id),
-          onToggleFavorite: _toggleFavorite,
-          onDownload: (_) async {},
-          onShare: _shareImage,
-        ),
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 400),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (_, animation, secondaryAnimation) {
+          return ImageFullscreenPage(
+            imageIds: ids,
+            initialIndex: initialIndex,
+            imageUrl: imageUrl,
+            isFavorite: (imageId) => _favorites.contains(imageId),
+            onToggleFavorite: _toggleFavorite,
+            onDownload: _downloadImage,
+            onShare: _shareImage,
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final fade = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeInOut,
+          );
+
+          final scale = Tween<double>(begin: 0.95, end: 1.0).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+          );
+
+          return FadeTransition(
+            opacity: fade,
+            child: ScaleTransition(scale: scale, child: child),
+          );
+        },
       ),
     );
   }
@@ -197,8 +220,19 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text(widget.title),
+        backgroundColor: Colors.black,
+        elevation: 0,
+        centerTitle: true,
+        title: Text(
+          widget.title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+          ),
+        ),
         actions: [
           IconButton(
             tooltip: 'Favorites',
@@ -206,21 +240,20 @@ class _MyHomePageState extends State<MyHomePage> {
             icon: Stack(
               alignment: Alignment.center,
               children: [
-                const Icon(Icons.favorite),
+                const Icon(Icons.favorite, color: Colors.white),
                 if (_favorites.isNotEmpty)
                   Positioned(
                     top: 0,
                     right: 0,
                     child: Container(
+                      padding: const EdgeInsets.all(2),
                       constraints: const BoxConstraints(
                         minWidth: 18,
                         minHeight: 18,
                       ),
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
+                      decoration: const BoxDecoration(
                         color: Colors.red,
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1.5),
                       ),
                       child: Text(
                         '${_favorites.length}',
@@ -238,32 +271,46 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ],
       ),
-
       body: RefreshIndicator(
         onRefresh: _refreshImages,
         child: GridView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          padding: const EdgeInsets.all(12),
+          physics: const AlwaysScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: 0.8,
+            childAspectRatio: 0.72,
           ),
           itemCount: _imageIds.length,
           itemBuilder: (context, index) {
             final id = _imageIds[index];
 
             return GestureDetector(
-              behavior: HitTestBehavior.opaque,
               onTap: () => _openFullScreen(id),
-              child: ImageCard(
-                id: id,
-                imageUrl: imageUrl,
-                isFavorite: _favorites.contains(id),
-                isDownloading: false,
-                onDownload: (_) async {},
-                onToggleFavorite: _toggleFavorite,
-                onShare: _shareImage,
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: ImageCard(
+                    id: id,
+                    imageUrl: imageUrl,
+                    isFavorite: _favorites.contains(id),
+                    isDownloading: false,
+                    onDownload: _downloadImage,
+                    onToggleFavorite: _toggleFavorite,
+                    onShare: _shareImage,
+                  ),
+                ),
               ),
             );
           },
