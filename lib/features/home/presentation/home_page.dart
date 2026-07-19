@@ -9,9 +9,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'widgets/image_card.dart';
-import '../../pages/favorites_page.dart';
-import '../../pages/fullscreen_page.dart';
+import '../widgets/image_card.dart';
+import '../../favorites/presentation/favorites_page.dart';
+import '../../wallpaper/presentation/fullscreen_page.dart';
 
 const String kFavoritesEndpoint = 'http://localhost:3000/api/favorites';
 const String kCacheKeyImages = 'cached_image_ids';
