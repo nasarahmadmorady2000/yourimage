@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 class ImageFullscreenPage extends StatefulWidget {
   const ImageFullscreenPage({
@@ -37,7 +38,7 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
   double _progress = 0.0;
   bool _isProcessing = false;
 
-  // ✅ PLATFORM CHANNEL (Flutter → Android)
+  // ✅ Android wallpaper channel
   static const MethodChannel _wallpaperChannel = MethodChannel(
     'com.imagesapp.wallpaper',
   );
@@ -58,58 +59,43 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
   int get _currentImageId => widget.imageIds[_currentIndex];
 
   // =========================
-  // IMAGE DOWNLOAD (TEMP FILE)
+  // ⬇ DOWNLOAD (Gallery via PhotoManager)
   // =========================
-  Future<File> _downloadToTempFile(int id) async {
-    final dio = Dio();
-
-    final response = await dio.get(
-      widget.imageUrl(id),
-      options: Options(responseType: ResponseType.bytes),
-      onReceiveProgress: (received, total) {
-        if (total != -1 && mounted) {
-          setState(() {
-            _progress = received / total;
-          });
-        }
-      },
-    );
-
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/wallpaper_$id.jpg');
-
-    await file.writeAsBytes(Uint8List.fromList(response.data));
-
-    return file;
-  }
-
-  // =========================
-  // WALLPAPER APPLY (ANDROID)
-  // =========================
-  Future<void> _applyWallpaper(int id, String type) async {
+  Future<void> _downloadImage(int id) async {
     try {
       setState(() {
         _isProcessing = true;
         _progress = 0;
       });
 
-      final file = await _downloadToTempFile(id);
+      final dio = Dio();
 
-      await _wallpaperChannel.invokeMethod('setWallpaper', {
-        'imagePath': file.path,
-        'type': type, // home / lock / both
-      });
+      final response = await dio.get(
+        widget.imageUrl(id),
+        options: Options(responseType: ResponseType.bytes),
+        onReceiveProgress: (received, total) {
+          if (total != -1 && mounted) {
+            setState(() {
+              _progress = received / total;
+            });
+          }
+        },
+      );
+
+      final bytes = Uint8List.fromList(response.data);
+
+      await PhotoManager.editor.saveImage(bytes, filename: "MyApp_$id.jpg");
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Wallpaper applied ($type screen)")),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Saved to Gallery")));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text("Failed: $e")));
+        ).showSnackBar(SnackBar(content: Text("Download failed: $e")));
       }
     } finally {
       if (mounted) {
@@ -122,8 +108,54 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
   }
 
   // =========================
-  // WALLPAPER OPTIONS SHEET
+  // 🖼 WALLPAPER APPLY
   // =========================
+  Future<File> _downloadTempFile(int id) async {
+    final dio = Dio();
+
+    final response = await dio.get(
+      widget.imageUrl(id),
+      options: Options(responseType: ResponseType.bytes),
+    );
+
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/wallpaper_$id.jpg');
+
+    await file.writeAsBytes(Uint8List.fromList(response.data));
+    return file;
+  }
+
+  Future<void> _applyWallpaper(int id, String type) async {
+    try {
+      setState(() {
+        _isProcessing = true;
+      });
+
+      final file = await _downloadTempFile(id);
+
+      await _wallpaperChannel.invokeMethod('setWallpaper', {
+        'imagePath': file.path,
+        'type': type,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Wallpaper set ($type)")));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Wallpaper failed: $e")));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
   void _showWallpaperOptions(int id) {
     showModalBottomSheet(
       context: context,
@@ -191,7 +223,15 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
               ),
             ),
 
-          // ⬇ wallpaper button
+          // ⬇ DOWNLOAD BUTTON (RESTORED)
+          IconButton(
+            icon: const Icon(Icons.download),
+            onPressed: _isProcessing
+                ? null
+                : () => _downloadImage(_currentImageId),
+          ),
+
+          // 🖼 WALLPAPER BUTTON
           IconButton(
             icon: const Icon(Icons.wallpaper),
             onPressed: _isProcessing
@@ -219,7 +259,7 @@ class _ImageFullscreenPageState extends State<ImageFullscreenPage> {
               child: InteractiveViewer(
                 minScale: 1,
                 maxScale: 5,
-                child: Image.network(widget.imageUrl(id), fit: BoxFit.contain),
+                child: Image.network(widget.imageUrl(id)),
               ),
             ),
           );

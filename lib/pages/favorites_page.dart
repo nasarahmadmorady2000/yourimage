@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../widgets/image_card.dart';
+import '../features/home/widgets/image_card.dart';
 
 typedef OpenFullScreenCallback = void Function(int id, List<int> imageIds);
 
